@@ -1,0 +1,7 @@
+*.pyc
+.vscode
+data/dair-v2x-i
+data/rope3d
+output
+*.so
+__pycache__

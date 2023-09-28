@@ -9,17 +9,14 @@ from evaluators.utils import *
 from evaluators.kitti_utils import *
 from evaluators.kitti_utils import kitti_common as kitti
 from evaluators.kitti_utils.eval import kitti_eval
+from scripts.gen_info_rope3d import *
 
 import sys
-sys.path.remove('/home/zjlab/mbb/AB3DMOT-master')
-sys.path.remove('/home/zjlab/mbb/AB3DMOT-master/Xinshuo_PyToolbox-master')
-sys.path.remove('/home/zjlab/mayechi/code/transfusion-lt3d')
 
-from scripts.gen_info_rope3d import *
 from scipy.spatial.transform import Rotation as R
 
 category_map_dair = {"Vehicle": "Vehicle",  "Cyclist": "Cyclist", "Pedestrian": "Pedestrian"}
-category_map_rope3d = {"car": "Car", "van": "Car", "truck": "Bus", "bus": "Bus", "pedestrian": "Pedestrian", "bicycle": "Cyclist", "trailer": "Cyclist", "motorcycle": "Cyclist"}
+category_map_rope3d = {"Vehicle": "Vehicle",  "Cyclist": "Cyclist", "Pedestrian": "Pedestrian"}
 
 def get_lidar_3d_8points(obj_size, yaw_lidar, center_lidar):
     center_lidar = [float(center_lidar[0]), float(center_lidar[1]), float(center_lidar[2])]

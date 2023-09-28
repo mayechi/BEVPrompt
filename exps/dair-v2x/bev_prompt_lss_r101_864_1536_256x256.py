@@ -251,24 +251,6 @@ class BEVPromptLightningModel(LightningModule):
         return detection_loss
 
     def eval_step(self, batch, batch_idx, prefix: str):
-        (sweep_imgs, mats, _, img_metas, _, _) = batch
-        if torch.cuda.is_available():
-            for key, value in mats.items():
-                mats[key] = value.cuda()
-            sweep_imgs = sweep_imgs.cuda()
-        preds = self.model(sweep_imgs, mats)
-        if isinstance(self.model, torch.nn.parallel.DistributedDataParallel):
-            results = self.model.module.get_bboxes(preds, img_metas)
-        else:
-            results = self.model.get_bboxes(preds, img_metas)
-        for i in range(len(results)):
-            results[i][0] = results[i][0].tensor.detach().cpu().numpy()
-            results[i][1] = results[i][1].detach().cpu().numpy()
-            results[i][2] = results[i][2].detach().cpu().numpy()
-            results[i].append(img_metas[i])
-        return results
-
-    def eval_step(self, batch, batch_idx, prefix: str):
         (sweep_imgs, mats, _, img_metas, gt_boxes, gt_labels) = batch
 
         img_metas_list = list()

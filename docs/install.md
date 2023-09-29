@@ -1,10 +1,5 @@
 # Step-by-step installation instructions
 
-## Recommended docker image
-```shell
-docker pull yanglei2024/op-bevheight:base
-```
-
 ## Installation
 **a.** Install [pytorch](https://pytorch.org/)(v1.9.0).
 
@@ -21,7 +16,7 @@ python setup.py install
 ```shell
 pip install -r requirements.txt
 ```
-**e.** Install BEVHeight (gpu required).
+**e.** Install BEVPrompt (gpu required).
 ```shell
 python setup.py develop
 ```

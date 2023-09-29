@@ -59,5 +59,7 @@ BEVHeight
 ## Prepare DAIR-V2X-I or Rope3D infos.
 ```
 python scripts/gen_info_dair.py
+python scripts/gen_info_dair_prompt.py
 python scripts/gen_info_rope3d.py
+python scripts/gen_info_rope3d_prompt.py
 ```

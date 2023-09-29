@@ -3,6 +3,7 @@ from argparse import ArgumentParser, Namespace
 
 import os
 import mmcv
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn.parallel
@@ -15,7 +16,7 @@ from torch.optim.lr_scheduler import MultiStepLR
 
 from dataset.nusc_mv_det_dataset import NuscMVDetDataset, collate_fn
 from evaluators.det_evaluators import RoadSideEvaluator
-from models.bev_height import BEVHeight
+from models.bev_prompt import BEVPrompt
 from utils.torch_dist import all_gather_object, get_rank, synchronize
 from utils.backup_files import backup_codebase
 
@@ -30,10 +31,10 @@ data_root = "data/rope3d/"
 gt_label_path = "data/rope3d-kitti/training/label_2"
 
 backbone_conf = {
-    'x_bound': [0, 140.8, 0.8],
-    'y_bound': [-70.4, 70.4, 0.8],
+    'x_bound': [0, 102.4, 0.4],
+    'y_bound': [-51.2, 51.2, 0.4],
     'z_bound': [-5, 3, 8],
-    'd_bound': [-1.5, 3.0, 180],
+    'd_bound': [-2.0, 0.0, 90],
     'final_dim':
     final_dim,
     'output_channels':
@@ -43,11 +44,11 @@ backbone_conf = {
     'img_backbone_conf':
     dict(
         type='ResNet',
-        depth=50,
+        depth=101,
         frozen_stages=0,
         out_indices=[0, 1, 2, 3],
         norm_eval=False,
-        init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50'),
+        init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet101'),
     ),
     'img_neck_conf':
     dict(
@@ -57,7 +58,7 @@ backbone_conf = {
         out_channels=[128, 128, 128, 128],
     ),
     'height_net_conf':
-    dict(in_channels=512, mid_channels=512)
+    dict(in_channels=512, mid_channels=512),
 }
 ida_aug_conf = {
     'final_dim':
@@ -89,25 +90,15 @@ bev_neck = dict(type='SECONDFPN',
                 out_channels=[64, 64, 64, 64])
 
 CLASSES = [
-    'car',
-    'truck',
-    'construction_vehicle',
-    'bus',
-    'trailer',
-    'barrier',
-    'motorcycle',
-    'bicycle',
-    'pedestrian',
-    'traffic_cone',
+    'Vehicle',
+    'Cyclist',
+    'Pedestrian',
 ]
 
 TASKS = [
-    dict(num_class=1, class_names=['car']),
-    dict(num_class=2, class_names=['truck', 'construction_vehicle']),
-    dict(num_class=2, class_names=['bus', 'trailer']),
-    dict(num_class=1, class_names=['barrier']),
-    dict(num_class=2, class_names=['motorcycle', 'bicycle']),
-    dict(num_class=2, class_names=['pedestrian', 'traffic_cone']),
+    dict(num_class=1, class_names=['Vehicle']),
+    dict(num_class=1, class_names=['Cyclist']),
+    dict(num_class=1, class_names=['Pedestrian'])
 ]
 
 common_heads = dict(reg=(2, 2),
@@ -118,19 +109,19 @@ common_heads = dict(reg=(2, 2),
 
 bbox_coder = dict(
     type='CenterPointBBoxCoder',
-    post_center_range=[0.0, -70.4, -10.0, 140.8, 70.4, 10.0],
+    post_center_range=[0.0, -50.4, -10.0, 102.4, 50.4, 10.0],
     max_num=500,
-    score_threshold=0.1,
+    score_threshold=0.0,
     out_size_factor=4,
-    voxel_size=[0.2, 0.2, 8],
-    pc_range=[0, -70.4, -5, 140.8, 70.4, 3],
+    voxel_size=[0.1, 0.1, 8],
+    pc_range=[0, -50.4, -5, 102.4, 50.4, 3],
     code_size=9,
 )
 
 train_cfg = dict(
-    point_cloud_range=[0, -70.4, -5, 140.8, 70.4, 3],
-    grid_size=[704, 704, 1],
-    voxel_size=[0.2, 0.2, 8],
+    point_cloud_range=[0, -50.4, -5, 102.4, 50.4, 3],
+    grid_size=[1024, 1024, 1],
+    voxel_size=[0.1, 0.1, 8],
     out_size_factor=4,
     dense_reg=1,
     gaussian_overlap=0.1,
@@ -140,13 +131,13 @@ train_cfg = dict(
 )
 
 test_cfg = dict(
-    post_center_limit_range=[0.0, -70.4, -10.0, 140.8, 70.4, 10.0],
+    post_center_limit_range=[0.0, -50.4, -10.0, 102.4, 50.4, 10.0],
     max_per_img=500,
     max_pool_nms=False,
-    min_radius=[4, 12, 10, 1, 0.85, 0.175],
+    min_radius=[4, 0.85, 0.175],
     score_threshold=0.1,
     out_size_factor=4,
-    voxel_size=[0.2, 0.2, 8],
+    voxel_size=[0.1, 0.1, 8],
     nms_type='circle',
     pre_max_size=1000,
     post_max_size=83,
@@ -169,7 +160,7 @@ head_conf = {
 }
 
 
-class BEVHeightLightningModel(LightningModule):
+class BEVPromptLightningModel(LightningModule):
     MODEL_NAMES = sorted(name for name in models.__dict__
                          if name.islower() and not name.startswith('__')
                          and callable(models.__dict__[name]))
@@ -199,11 +190,11 @@ class BEVHeightLightningModel(LightningModule):
         mmcv.mkdir_or_exist(default_root_dir)
         self.default_root_dir = default_root_dir
         self.evaluator = RoadSideEvaluator(class_names=self.class_names,
-                                           current_classes=["Car", "Bus"],
+                                           current_classes=["Vehicle", "Pedestrian", "Cyclist"],
                                            data_root=data_root,
                                            gt_label_path=gt_label_path,
-                                           output_dir=self.default_root_dir)
-        self.model = BEVHeight(self.backbone_conf, self.head_conf)
+                                           output_dir=self.default_root_dir,)
+        self.model = BEVPrompt(self.backbone_conf, self.head_conf)
         self.mode = 'valid'
         self.img_conf = img_conf
         self.data_use_cbgs = False
@@ -215,47 +206,100 @@ class BEVHeightLightningModel(LightningModule):
         self.dbound = self.backbone_conf['d_bound']
         self.height_channels = int(self.dbound[2])
 
-    def forward(self, sweep_imgs, mats):
-        return self.model(sweep_imgs, mats)
+    def forward(self, sweep_imgs, mats, depth=None):
+        return self.model(sweep_imgs, mats, depth)
 
     def training_step(self, batch):
         (sweep_imgs, mats, _, _, gt_boxes, gt_labels) = batch
         if torch.cuda.is_available():
             for key, value in mats.items():
-                mats[key] = value.cuda()
+                if key == 'prompt_2d' or key == 'prompt_class':
+                    mats[key] = [gt_box_2d.cuda() for gt_box_2d in mats[key]]
+                else:
+                    mats[key] = value.cuda()
             sweep_imgs = sweep_imgs.cuda()
             gt_boxes = [gt_box.cuda() for gt_box in gt_boxes]
             gt_labels = [gt_label.cuda() for gt_label in gt_labels]
+            prompt_flag = True
+            for gt_box in gt_boxes:
+                if gt_box.shape[0] == 0:
+                    prompt_flag = False
+                    break
+            if prompt_flag:     
+                batch_size = len(gt_boxes)
+                gt_boxes_list = list()
+                gt_labels_list = list()
+                for i in range(batch_size):
+                    for gt_box in gt_boxes[i]:
+                        gt_boxes_list.append(gt_box.unsqueeze(0))
+                    for gt_label in gt_labels[i]:    
+                        gt_labels_list.append(gt_label.unsqueeze(0))
+                gt_boxes = gt_boxes_list
+                gt_labels = gt_labels_list
+
         preds = self(sweep_imgs, mats)
+        torch.cuda.empty_cache()
         if isinstance(self.model, torch.nn.parallel.DistributedDataParallel):
             targets = self.model.module.get_targets(gt_boxes, gt_labels)
-            detection_loss = self.model.module.loss(targets, preds)
+            detection_loss = self.model.module.loss(targets, preds, mats)
         else:
             targets = self.model.get_targets(gt_boxes, gt_labels)
             detection_loss = self.model.loss(targets, preds)  
+        if prompt_flag == False:
+            detection_loss /= 100000
         self.log('detection_loss', detection_loss)
         return detection_loss
 
     def eval_step(self, batch, batch_idx, prefix: str):
-        (sweep_imgs, mats, _, img_metas, _, _) = batch
+        (sweep_imgs, mats, _, img_metas, gt_boxes, gt_labels) = batch
+        img_metas_list = list()
+        batch_size = len(gt_labels)
+        for i in range(batch_size):
+            prompt_per_batch_size = gt_labels[i].shape[0]
+            for j in range(prompt_per_batch_size):
+                img_metas_list.append(img_metas[i])
+            if prompt_per_batch_size == 0:
+                results = [[np.zeros((0,9)),np.zeros((0,)),np.zeros((0,)),img_metas[0]]]
+                return results
+        img_metas = img_metas_list   
+
         if torch.cuda.is_available():
             for key, value in mats.items():
-                mats[key] = value.cuda()
+                if key == 'prompt_2d' or key == 'prompt_class':
+                    mats[key] = [gt_box_2d.cuda() for gt_box_2d in mats[key]]
+                else:
+                    mats[key] = value.cuda()
             sweep_imgs = sweep_imgs.cuda()
-        preds = self.model(sweep_imgs, mats)
+        preds = self(sweep_imgs, mats)
+        torch.cuda.empty_cache()
         if isinstance(self.model, torch.nn.parallel.DistributedDataParallel):
             results = self.model.module.get_bboxes(preds, img_metas)
         else:
             results = self.model.get_bboxes(preds, img_metas)
-        for i in range(len(results)):
-            results[i][0] = results[i][0].tensor.detach().cpu().numpy()
-            results[i][1] = results[i][1].detach().cpu().numpy()
-            results[i][2] = results[i][2].detach().cpu().numpy()
-            results[i].append(img_metas[i])
-        return results
 
-    def validation_step(self, batch, batch_idx):
-        return self.eval_step(batch, batch_idx, 'val')
+        '''Detection for batch_size=1'''
+        outputs_boxes = list()
+        outputs_scores = list()
+        outputs_labels = list()
+        for i in range(len(results)):
+            index = torch.argsort(results[i][1])
+            outputs_boxes.append(results[i][0].tensor.detach().cpu().numpy()[index[-1]:index[-1]+1])
+            outputs_scores.append(results[i][1].detach().cpu().numpy()[index[-1]:index[-1]+1])
+            outputs_labels.append(results[i][2].detach().cpu().numpy()[index[-1]:index[-1]+1])
+        outputs_boxes = np.concatenate(outputs_boxes) 
+        outputs_scores = np.concatenate(outputs_scores) 
+        outputs_labels = np.concatenate(outputs_labels)    #### changed by me
+        # outputs_labels = gt_labels[0].detach().cpu().numpy()
+        assert len(outputs_labels) == len(outputs_scores), "len(outputs_labels) != len(outputs_scores) ! "
+        results = list()
+        result = list()
+        result.append(outputs_boxes)
+        result.append(outputs_scores)
+        result.append(outputs_labels)
+        result.append(img_metas[0])
+        results.append(result)
+            
+        return results
 
     def validation_epoch_end(self, validation_step_outputs):
         all_pred_results = list()
@@ -306,7 +350,7 @@ class BEVHeightLightningModel(LightningModule):
             ida_aug_conf=self.ida_aug_conf,
             classes=self.class_names,
             data_root=self.data_root,
-            info_path=os.path.join(data_root, 'rope3d_12hz_infos_train.pkl'),
+            info_path=os.path.join(data_root, 'rope3d_12hz_infos_train_2d_10.pkl'),
             is_train=True,
             use_cbgs=self.data_use_cbgs,
             img_conf=self.img_conf,
@@ -322,7 +366,7 @@ class BEVHeightLightningModel(LightningModule):
             batch_size=self.batch_size_per_device,
             num_workers=4,
             drop_last=True,
-            shuffle=False,
+            shuffle=True,
             collate_fn=partial(collate_fn,
                                is_return_depth=False),
             sampler=None,
@@ -330,7 +374,7 @@ class BEVHeightLightningModel(LightningModule):
         return train_loader
 
     def val_dataloader(self):
-        val_dataset = NuscMVDetDataset(
+        val_dataset = NuscMVDetDataset(   
             ida_aug_conf=self.ida_aug_conf,
             classes=self.class_names,
             data_root=self.data_root,
@@ -367,16 +411,20 @@ def main(args: Namespace) -> None:
         pl.seed_everything(args.seed)
     print(args)
     
-    model = BEVHeightLightningModel(**vars(args))
-    checkpoint_callback = ModelCheckpoint(dirpath='./outputs/bev_height_lss_r50_864_1536_128x128/checkpoints', filename='{epoch}', every_n_epochs=5, save_last=True, save_top_k=-1)
+    model = BEVPromptLightningModel(**vars(args))
+    checkpoint_callback = ModelCheckpoint(dirpath=args.default_root_dir + '/checkpoints', filename='{epoch}', every_n_epochs=2, save_last=True, save_top_k=-1)
     trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback])
+
     if args.evaluate:
-        for ckpt_name in os.listdir(args.ckpt_path):
-            model_pth = os.path.join(args.ckpt_path, ckpt_name)
-            trainer.test(model, ckpt_path=model_pth)
+        if os.path.isdir(args.ckpt_path):
+            for ckpt_name in os.listdir(args.ckpt_path):
+                model_pth = os.path.join(args.ckpt_path, ckpt_name)
+                trainer.test(model, ckpt_path=model_pth)
+        elif os.path.isfile(args.ckpt_path):
+            trainer.test(model, ckpt_path=args.ckpt_path, )
     else:
-        backup_codebase(os.path.join('./outputs/bev_height_lss_r50_864_1536_128x128', 'backup'))
-        trainer.fit(model)
+        backup_codebase(os.path.join(args.default_root_dir, 'backup'))
+        trainer.fit(model)        
         
 def run_cli():
     parent_parser = ArgumentParser(add_help=False)
@@ -386,24 +434,24 @@ def run_cli():
                                dest='evaluate',
                                action='store_true',
                                help='evaluate model on validation set')
-    parent_parser.add_argument('-b', '--batch_size_per_device', type=int)
+    parent_parser.add_argument('-b', '--batch_size_per_device', default=1, type=int)
     parent_parser.add_argument('--seed',
                                type=int,
                                default=0,
                                help='seed for initializing training.')
-    parent_parser.add_argument('--ckpt_path', type=str)
-    parser = BEVHeightLightningModel.add_model_specific_args(parent_parser)
+    parent_parser.add_argument('--ckpt_path', default=None, type=str)
+    parser = BEVPromptLightningModel.add_model_specific_args(parent_parser)
     parser.set_defaults(
         profiler='simple',
         deterministic=False,
-        max_epochs=60,
+        max_epochs=100,
         accelerator='ddp',
         num_sanity_val_steps=0,
         gradient_clip_val=5,
         limit_val_batches=0,
         enable_checkpointing=True,
         precision=32,
-        default_root_dir='./outputs/bev_height_lss_r50_864_1536_128x128')
+        default_root_dir='./outputs/bev_prompt_lss_r101_864_1536_256x256_rope3d')
     args = parser.parse_args()
     main(args)
 

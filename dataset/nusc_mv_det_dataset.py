@@ -85,7 +85,7 @@ def img_intrin_extrin_transform(img, ratio, roll, transform_pitch, intrin_mat):
 
     W, H = img.size[0], img.size[1]
     new_W, new_H = (int(W * ratio), int(H * ratio))
-    img = img.resize((new_W, new_H), Image.ANTIALIAS)
+    img = img.resize((new_W, new_H), Image.LANCZOS)
     
     h_min = int(center[1] * abs(1.0 - ratio))
     w_min = int(center[0] * abs(1.0 - ratio))
@@ -609,7 +609,7 @@ class NuscMVDetDataset(Dataset):
         return torch.Tensor(gt_boxes), torch.tensor(gt_labels), gt_classes, torch.tensor(gt_corners)
 
     def get_2d_from_2D_detector(self, frame_name):
-        self.result_2d_dir = '/home/zjlab/wsq/detrex/results/labels21/'
+        self.result_2d_dir = './labels_2d/'
         score_2d_thresh_dict = {
             '0': 0.4,
             '1': 0.4,
@@ -774,7 +774,8 @@ class NuscMVDetDataset(Dataset):
         # Temporary solution for test.
         else:
             # Get from 2D Detections
-            img_name = img_metas['token'].split('/')[1]
+            # img_name = img_metas['token'].split('/')[1]
+            img_name = img_metas['token']
             frame_name = img_name.split('.jpg')[0]
             sweep_imgs_ori_array = sweep_imgs_ori.squeeze().numpy().transpose(1, 2, 0).copy()
             dt_labels, dt_classes, dt_boxes_2d, dt_scores = self.get_2d_from_2D_detector(frame_name)

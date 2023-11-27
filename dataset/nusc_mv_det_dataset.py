@@ -620,7 +620,7 @@ class NuscMVDetDataset(Dataset):
         file_flag = os.path.exists(self.result_2d_dir+frame_name+'.txt')
         if file_flag == False:
             print("Not 2d file: ", self.result_2d_dir+frame_name+'.txt')
-            return torch.zeros([0, ], dtype=torch.float32), torch.zeros([0, ], dtype=torch.float32), torch.zeros([0, 4], dtype=torch.float32)
+            return torch.zeros([0, ], dtype=torch.float32), torch.zeros([0, ], dtype=torch.float32), torch.zeros([0, 4], dtype=torch.float32), torch.zeros([0, ], dtype=torch.float32)
         with open(self.result_2d_dir+frame_name+'.txt', 'r') as f:
             objs_list = f.readlines()
             for aid, objs in enumerate(objs_list):
@@ -776,7 +776,7 @@ class NuscMVDetDataset(Dataset):
             # Get from 2D Detections
             # img_name = img_metas['token'].split('/')[1]
             img_name = img_metas['token']
-            frame_name = img_name.split('.jpg')[0]
+            frame_name = img_name.split('/')[1].split('.jpg')[0]
             sweep_imgs_ori_array = sweep_imgs_ori.squeeze().numpy().transpose(1, 2, 0).copy()
             dt_labels, dt_classes, dt_boxes_2d, dt_scores = self.get_2d_from_2D_detector(frame_name)
             dt_boxes = sweep_imgs.new_zeros(0, 7)

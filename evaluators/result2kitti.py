@@ -218,7 +218,8 @@ def result2kitti(results_file, results_path, dair_root, gt_label_path, demo=Fals
             class_name = pred["detection_name"]
             
             w, l, h = dim[0], dim[1], dim[2]
-            x, y, z = loc[0], loc[1], loc[2]            
+            x, y, z = loc[0], loc[1], loc[2]
+            z = z - h /2
             bottom_center = [x, y, z]
             obj_size = [l, w, h]
             bottom_center_in_cam = r_velo2cam * np.matrix(bottom_center).T + t_velo2cam

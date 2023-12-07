@@ -19,6 +19,8 @@ map_name_from_general_to_detection = {
     'vehicle.truck': 'Vehicle',
     'vehicle.van': 'Vehicle',
     'vehicle.bus': 'Vehicle', 
+    'vehicle.bus.rigid': 'Vehicle', 
+    'vehicle.bicycle': 'Cyclist',
     'vehicle.cyclist': 'Cyclist',
     'vehicle.tricyclist': 'Cyclist',
     'vehicle.motorcyclist': 'Cyclist',

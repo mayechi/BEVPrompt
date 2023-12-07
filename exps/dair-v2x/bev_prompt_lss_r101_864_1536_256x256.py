@@ -109,12 +109,12 @@ common_heads = dict(reg=(2, 2),
 
 bbox_coder = dict(
     type='CenterPointBBoxCoder',
-    post_center_range=[0.0, -50.4, -10.0, 102.4, 50.4, 10.0],
+    post_center_range=[0, -51.2, -5, 104.4, 51.2, 3],
     max_num=500,
     score_threshold=0.1,
     out_size_factor=4,
     voxel_size=[0.1, 0.1, 8],
-    pc_range=[0, -50.4, -5, 102.4, 50.4, 3],
+    pc_range=[0, -51.2, -5, 104.4, 51.2, 3],
     code_size=9,
 )
 
@@ -158,7 +158,6 @@ head_conf = {
     'gaussian_overlap': 0.1,
     'min_radius': 2,
 }
-
 
 class BEVPromptLightningModel(LightningModule):
     MODEL_NAMES = sorted(name for name in models.__dict__

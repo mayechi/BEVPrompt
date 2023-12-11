@@ -122,6 +122,7 @@ class RoadSideEvaluator():
                 if np.sqrt(nusc_box.velocity[0]**2 +
                            nusc_box.velocity[1]**2) > 0.2:
                     if name in [
+                            'Vehicle',
                             'car',
                             'construction_vehicle',
                             'bus',
@@ -226,10 +227,6 @@ class RoadSideEvaluator():
 
 if __name__ == "__main__":
     pred_label_path = "outputs/data/"  
-    gt_label_path = "data/rope3d-kitti/training/label_2"
-
-    result_files = 'outputs/bev_prompt_lss_r101_864_1536_256x256_rope3d/results_nusc.json'
-    data_root = 'data/rope3d/'
-    pred_label_path = result2kitti_rope3d(result_files, 'outputs', data_root, gt_label_path, demo=False)
+    gt_label_path = "data/dair-v2x-i-kitti/training/label_2"
 
     kitti_evaluation(pred_label_path, gt_label_path, current_classes=["Vehicle", "Cyclist", "Pedestrian"], metric_path="outputs/metrics")

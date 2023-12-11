@@ -79,7 +79,7 @@ class MaskDecoder(nn.Module):
         src_list = list()
         pos_src_list = list()
         for i in range(b):
-           src = torch.repeat_interleave(image_embeddings[0].unsqueeze(0), tokens[i].shape[0], dim=0)
+           src = torch.repeat_interleave(image_embeddings[i].unsqueeze(0), tokens[i].shape[0], dim=0)
            pos_src = torch.repeat_interleave(image_pe, tokens[i].shape[0], dim=0)
            src_list.append(src)
            pos_src_list.append(pos_src)

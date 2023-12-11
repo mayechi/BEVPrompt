@@ -570,6 +570,12 @@ def get_label_anno(label_path):
         content = [line.strip().split(' ') for line in lines]
     num_objects = len([x[0] for x in content if x[0] != 'DontCare'])
     annotations['name'] = np.array([x[0] for x in content])
+
+    # Molidfy the 'Car' to 'Vehicle'
+    for i, name in enumerate(annotations['name']):
+        if name == 'Car':
+            annotations['name'][i] = 'Vehicle'    
+            
     num_gt = len(annotations['name'])
     annotations['truncated'] = np.array([float(x[1]) for x in content])
     annotations['occluded'] = np.array([int(x[2]) for x in content])

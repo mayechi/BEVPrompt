@@ -287,6 +287,7 @@ def result2kitti_rope3d(results_file, results_path, dair_root, gt_label_path, de
             w, l, h = dim[0], dim[1], dim[2]
             x, y, z = loc[0], loc[1], loc[2]            
             bottom_center = [x, y, z]
+
             obj_size = [l, w, h]
             bottom_center_in_cam = r_velo2cam * np.matrix(bottom_center).T + t_velo2cam
             alpha, yaw = get_camera_3d_8points(

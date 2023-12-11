@@ -109,17 +109,17 @@ common_heads = dict(reg=(2, 2),
 
 bbox_coder = dict(
     type='CenterPointBBoxCoder',
-    post_center_range=[0, -51.2, -5, 104.4, 51.2, 3],
+    post_center_range=[0, -51.2, -5, 102.4, 51.2, 3],
     max_num=500,
     score_threshold=0.1,
     out_size_factor=4,
     voxel_size=[0.1, 0.1, 8],
-    pc_range=[0, -51.2, -5, 104.4, 51.2, 3],
+    pc_range=[0, -51.2, -5, 102.4, 51.2, 3],
     code_size=9,
 )
 
 train_cfg = dict(
-    point_cloud_range=[0, -50.4, -5, 102.4, 50.4, 3],
+    point_cloud_range=[0, -51.2, -5, 102.4, 51.2, 3],
     grid_size=[1024, 1024, 1],
     voxel_size=[0.1, 0.1, 8],
     out_size_factor=4,
@@ -131,7 +131,7 @@ train_cfg = dict(
 )
 
 test_cfg = dict(
-    post_center_limit_range=[0.0, -50.4, -10.0, 102.4, 50.4, 10.0],
+    post_center_limit_range=[0.0, -51.2, -5, 102.4, 51.2, 3],
     max_per_img=500,
     max_pool_nms=False,
     min_radius=[4, 0.85, 0.175],
@@ -347,7 +347,7 @@ class BEVPromptLightningModel(LightningModule):
             ida_aug_conf=self.ida_aug_conf,
             classes=self.class_names,
             data_root=self.data_root,
-            info_path=os.path.join(data_root, 'dair_12hz_infos_train_2d_20.pkl'),
+            info_path=os.path.join(data_root, 'dair_12hz_infos_train_2d_15.pkl'),
             is_train=True,
             use_cbgs=self.data_use_cbgs,
             img_conf=self.img_conf,
@@ -420,6 +420,7 @@ def main(args: Namespace) -> None:
             trainer.test(model, ckpt_path=args.ckpt_path, )
     else:
         backup_codebase(os.path.join('./outputs/bev_prompt_lss_r101_864_1536_256x256', 'backup'))
+        # trainer.fit(model, ckpt_path=args.ckpt_path) 
         trainer.fit(model)
         
 def run_cli():
@@ -435,6 +436,7 @@ def run_cli():
                                type=int,
                                default=0,
                                help='seed for initializing training.')
+    # parent_parser.add_argument('--ckpt_path', default='outputs/bev_prompt_lss_r101_864_1536_256x256/checkpoints/epoch=9.ckpt', type=str)
     parent_parser.add_argument('--ckpt_path', type=str)
     parser = BEVPromptLightningModel.add_model_specific_args(parent_parser)
     parser.set_defaults(

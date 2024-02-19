@@ -1,5 +1,7 @@
 # Copyright (c) Megvii Inc. All rights reserved.
 from argparse import ArgumentParser, Namespace
+import sys
+sys.path.append('/home/zjlab/myc/code/BEVPrompt')
 
 import os
 import mmcv
@@ -19,6 +21,8 @@ from evaluators.det_evaluators import RoadSideEvaluator
 from models.bev_prompt import BEVPrompt
 from utils.torch_dist import all_gather_object, get_rank, synchronize
 from utils.backup_files import backup_codebase
+
+from nntime import export_timings
 
 H = 1080
 W = 1920
@@ -84,10 +88,27 @@ bev_backbone = dict(
     base_channels=160,
 )
 
+# bev_backbone = dict(
+#     type='ResNet',
+#     in_channels=80,
+#     depth=18,
+#     num_stages=1,
+#     strides=(1),
+#     dilations=(1),
+#     out_indices=[0],
+#     norm_eval=False,
+#     base_channels=160,
+# )
+
+# bev_neck = dict(type='SECONDFPN',
+#                 in_channels=[80, 160, 320, 640],
+#                 upsample_strides=[1, 2, 4, 8],
+#                 out_channels=[64, 64, 64, 64])
+
 bev_neck = dict(type='SECONDFPN',
-                in_channels=[80, 160, 320, 640],
-                upsample_strides=[1, 2, 4, 8],
-                out_channels=[64, 64, 64, 64])
+                in_channels=[80],
+                upsample_strides=[1],
+                out_channels=[256])
 
 CLASSES = [
     'Vehicle',
@@ -212,7 +233,7 @@ class BEVPromptLightningModel(LightningModule):
         (sweep_imgs, mats, _, _, gt_boxes, gt_labels) = batch
         if torch.cuda.is_available():
             for key, value in mats.items():
-                if key == 'prompt_2d' or key == 'prompt_class':
+                if key == 'prompt_2d' or key == 'prompt_class' or key == 'image_mask':
                     mats[key] = [gt_box_2d.cuda() for gt_box_2d in mats[key]]
                 else:
                     mats[key] = value.cuda()
@@ -237,7 +258,7 @@ class BEVPromptLightningModel(LightningModule):
                 gt_boxes = gt_boxes_list
                 gt_labels = gt_labels_list
         preds = self(sweep_imgs, mats)
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         if isinstance(self.model, torch.nn.parallel.DistributedDataParallel):
             targets = self.model.module.get_targets(gt_boxes, gt_labels)
             detection_loss = self.model.module.loss(targets, preds, mats)
@@ -245,6 +266,7 @@ class BEVPromptLightningModel(LightningModule):
             targets = self.model.get_targets(gt_boxes, gt_labels)
             detection_loss = self.model.loss(targets, preds)  
         if prompt_flag == False:
+            print("Wrong!")
             detection_loss /= 100000
         self.log('detection_loss', detection_loss)
         return detection_loss
@@ -262,7 +284,7 @@ class BEVPromptLightningModel(LightningModule):
 
         if torch.cuda.is_available():
             for key, value in mats.items():
-                if key == 'prompt_2d' or key == 'prompt_class':
+                if key == 'prompt_2d' or key == 'prompt_class' or key == 'image_mask':
                     mats[key] = [gt_box_2d.cuda() for gt_box_2d in mats[key]]
                 else:
                     mats[key] = value.cuda()
@@ -347,7 +369,7 @@ class BEVPromptLightningModel(LightningModule):
             ida_aug_conf=self.ida_aug_conf,
             classes=self.class_names,
             data_root=self.data_root,
-            info_path=os.path.join(data_root, 'dair_12hz_infos_train_2d_15.pkl'),
+            info_path=os.path.join(data_root, 'dair_12hz_infos_train_2d_1_fine_grained.pkl'),
             is_train=True,
             use_cbgs=self.data_use_cbgs,
             img_conf=self.img_conf,
@@ -363,7 +385,7 @@ class BEVPromptLightningModel(LightningModule):
             batch_size=self.batch_size_per_device,
             num_workers=4,
             drop_last=True,
-            shuffle=False,
+            shuffle=True,
             collate_fn=partial(collate_fn,
                                is_return_depth=False),
             sampler=None,
@@ -409,6 +431,7 @@ def main(args: Namespace) -> None:
     print(args)
     
     model = BEVPromptLightningModel(**vars(args))
+
     checkpoint_callback = ModelCheckpoint(dirpath='./outputs/bev_prompt_lss_r101_864_1536_256x256/checkpoints', filename='{epoch}', every_n_epochs=5, save_last=True, save_top_k=-1)
     trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback])
     if args.evaluate:
@@ -417,11 +440,12 @@ def main(args: Namespace) -> None:
                 model_pth = os.path.join(args.ckpt_path, ckpt_name)
                 trainer.test(model, ckpt_path=model_pth)
         elif os.path.isfile(args.ckpt_path):
-            trainer.test(model, ckpt_path=args.ckpt_path, )
+            trainer.test(model, ckpt_path=args.ckpt_path)
+            # export_timings(model, "outputs/timing.csv")
     else:
         backup_codebase(os.path.join('./outputs/bev_prompt_lss_r101_864_1536_256x256', 'backup'))
-        # trainer.fit(model, ckpt_path=args.ckpt_path) 
-        trainer.fit(model)
+        trainer.fit(model, ckpt_path=args.ckpt_path) 
+        # trainer.fit(model)
         
 def run_cli():
     parent_parser = ArgumentParser(add_help=False)
@@ -436,7 +460,6 @@ def run_cli():
                                type=int,
                                default=0,
                                help='seed for initializing training.')
-    # parent_parser.add_argument('--ckpt_path', default='outputs/bev_prompt_lss_r101_864_1536_256x256/checkpoints/epoch=9.ckpt', type=str)
     parent_parser.add_argument('--ckpt_path', type=str)
     parser = BEVPromptLightningModel.add_model_specific_args(parent_parser)
     parser.set_defaults(

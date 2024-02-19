@@ -325,8 +325,10 @@ class CenterHead(BaseModule):
         for num_cls in num_classes:
             heads = copy.deepcopy(common_heads)
             heads.update(dict(heatmap=(num_cls, num_heatmap_convs)))
+            # separate_head.update(
+            #     in_channels=share_conv_channel, heads=heads, num_cls=num_cls)
             separate_head.update(
-                in_channels=share_conv_channel, heads=heads, num_cls=num_cls)
+                in_channels=share_conv_channel+1, heads=heads, num_cls=num_cls)
             self.task_heads.append(builder.build_head(separate_head))
 
         self.with_velocity = 'vel' in common_heads.keys()
@@ -345,169 +347,13 @@ class CenterHead(BaseModule):
         ret_dicts = []
 
         x = self.shared_conv(x)
+
+        # Add class label prompt feature located at the first channel of x
+        prompt_class = torch.cat(mats_dict['prompt_class'])
+        x = torch.cat((x, prompt_class), dim=1)
         
         for task in self.task_heads:
             ret_dicts.append(task(x))
-
-        # Design a gate function
-        # batch_size = x.shape[0]
-        # prompt_class = torch.cat(mats_dict['prompt_class'])   
-        # ret_zeros_dict = dict()
-        # ret_zeros_dict['reg'] = torch.zeros([batch_size, 2, 256, 256], dtype=float).float().cuda()
-        # ret_zeros_dict['height'] = torch.zeros([batch_size, 1, 256, 256], dtype=float).float().cuda()
-        # ret_zeros_dict['dim'] = torch.zeros([batch_size, 3, 256, 256], dtype=float).float().cuda()
-        # ret_zeros_dict['rot'] = torch.zeros([batch_size, 2, 256, 256], dtype=float).float().cuda()
-        # ret_zeros_dict['vel'] = torch.zeros([batch_size, 2, 256, 256], dtype=float).float().cuda()
-        # ret_zeros_dict['heatmap'] = torch.ones([batch_size, 1, 256, 256], dtype=float).float().cuda()* (-1000)   
-        # car_index_list, cyclist_index_list, pedestrian_index_list = list(), list(), list()
-        # for i in range(prompt_class.shape[0]):
-        #     cls = prompt_class[i, 0, 0].item()
-        #     if cls == 1:
-        #         car_index_list.append(i)
-        #     if cls == 2:
-        #         cyclist_index_list.append(i)
-        #     if cls == 3:
-        #         pedestrian_index_list.append(i)         
-        # for i, task in enumerate(self.task_heads):
-        #     ret_zeros_use_dict = copy.deepcopy(ret_zeros_dict)
-        #     if i == 0:              
-        #         if len(car_index_list) == 0:
-        #             ret_dicts.append(ret_zeros_use_dict)
-        #         else:
-        #             task_f = task(x[car_index_list])                   
-        #             for key in ret_zeros_use_dict:
-        #                 ret_zeros_use_dict[key][car_index_list] = task_f[key]
-        #             ret_dicts.append(ret_zeros_use_dict)   
-        #     if i == 1:
-        #         if len(cyclist_index_list) == 0:
-        #             ret_dicts.append(ret_zeros_use_dict)
-        #         else:
-        #             task_f = task(x[cyclist_index_list])                   
-        #             for key in ret_zeros_use_dict:
-        #                 ret_zeros_use_dict[key][cyclist_index_list] = task_f[key]
-        #             ret_dicts.append(ret_zeros_use_dict)    
-        #     if i == 2:
-        #         if len(pedestrian_index_list) == 0:
-        #             ret_dicts.append(ret_zeros_use_dict)
-        #         else:
-        #             task_f = task(x[pedestrian_index_list])                   
-        #             for key in ret_zeros_use_dict:
-        #                 ret_zeros_use_dict[key][pedestrian_index_list] = task_f[key] 
-        #             ret_dicts.append(ret_zeros_use_dict)
-                       
-        # Fine class      
-        # if 0:
-        #     batch_size = x.shape[0]
-        #     prompt_class = torch.cat(mats_dict['prompt_class'])   
-        #     ret_zeros_dict = dict()
-        #     ret_zeros_dict['reg'] = torch.zeros([batch_size, 2, 256, 256], dtype=float).float().cuda()
-        #     ret_zeros_dict['height'] = torch.zeros([batch_size, 1, 256, 256], dtype=float).float().cuda()
-        #     ret_zeros_dict['dim'] = torch.zeros([batch_size, 3, 256, 256], dtype=float).float().cuda()
-        #     ret_zeros_dict['rot'] = torch.zeros([batch_size, 2, 256, 256], dtype=float).float().cuda()
-        #     ret_zeros_dict['vel'] = torch.zeros([batch_size, 2, 256, 256], dtype=float).float().cuda()
-        #     ret_zeros_dict['heatmap'] = torch.ones([batch_size, 1, 256, 256], dtype=float).float().cuda()* (-1000)  
-
-        #     car_index_list, truck_index_list, van_index_list = list(), list(), list()
-        #     bus_index_list, pedestrian_index_list, cyclist_index_list = list(), list(), list()
-        #     tricyclist_index_list, motorcyclist_index_list, barrowlist_index_list = list(), list(), list()
-        #     if prompt_class.shape[0] == 0:
-        #         for task in self.task_heads:
-        #             ret_dicts.append(task(x))   
-        #     else:         
-        #         for i in range(prompt_class.shape[0]):
-        #             cls = prompt_class[i, 0, 0].item()
-        #             if cls == 1:
-        #                 car_index_list.append(i)
-        #             if cls == 2:
-        #                 truck_index_list.append(i)
-        #             if cls == 3:
-        #                 van_index_list.append(i)            
-        #             if cls == 4:
-        #                 bus_index_list.append(i)
-        #             if cls == 5:
-        #                 pedestrian_index_list.append(i)
-        #             if cls == 6:
-        #                 cyclist_index_list.append(i)
-        #             if cls == 7:
-        #                 tricyclist_index_list.append(i)
-        #             if cls == 8:
-        #                 motorcyclist_index_list.append(i)
-        #             if cls == 9:
-        #                 barrowlist_index_list.append(i)
-        #         for i, task in enumerate(self.task_heads):
-        #             ret_zeros_use_dict = copy.deepcopy(ret_zeros_dict)
-        #             if i == 0:              
-        #                 if len(car_index_list) == 0:
-        #                     ret_dicts.append(ret_zeros_use_dict)
-        #                 else:
-        #                     task_f = task(x[car_index_list])                   
-        #                     for key in ret_zeros_use_dict:
-        #                         ret_zeros_use_dict[key][car_index_list] = task_f[key]
-        #                     ret_dicts.append(ret_zeros_use_dict)   
-        #             if i == 1:
-        #                 if len(truck_index_list) == 0:
-        #                     ret_dicts.append(ret_zeros_use_dict)
-        #                 else:
-        #                     task_f = task(x[truck_index_list])                   
-        #                     for key in ret_zeros_use_dict:
-        #                         ret_zeros_use_dict[key][truck_index_list] = task_f[key]
-        #                     ret_dicts.append(ret_zeros_use_dict)    
-        #             if i == 2:
-        #                 if len(van_index_list) == 0:
-        #                     ret_dicts.append(ret_zeros_use_dict)
-        #                 else:
-        #                     task_f = task(x[van_index_list])                   
-        #                     for key in ret_zeros_use_dict:
-        #                         ret_zeros_use_dict[key][van_index_list] = task_f[key] 
-        #                     ret_dicts.append(ret_zeros_use_dict)               
-        #             if i == 3:
-        #                 if len(bus_index_list) == 0:
-        #                     ret_dicts.append(ret_zeros_use_dict)
-        #                 else:
-        #                     task_f = task(x[bus_index_list])                   
-        #                     for key in ret_zeros_use_dict:
-        #                         ret_zeros_use_dict[key][bus_index_list] = task_f[key] 
-        #                     ret_dicts.append(ret_zeros_use_dict)  
-        #             if i == 4:
-        #                 if len(pedestrian_index_list) == 0:
-        #                     ret_dicts.append(ret_zeros_use_dict)
-        #                 else:
-        #                     task_f = task(x[pedestrian_index_list])                   
-        #                     for key in ret_zeros_use_dict:
-        #                         ret_zeros_use_dict[key][pedestrian_index_list] = task_f[key] 
-        #                     ret_dicts.append(ret_zeros_use_dict)  
-        #             if i == 5:
-        #                 if len(cyclist_index_list) == 0:
-        #                     ret_dicts.append(ret_zeros_use_dict)
-        #                 else:
-        #                     task_f = task(x[cyclist_index_list])                   
-        #                     for key in ret_zeros_use_dict:
-        #                         ret_zeros_use_dict[key][cyclist_index_list] = task_f[key] 
-        #                     ret_dicts.append(ret_zeros_use_dict)  
-        #             if i == 6:
-        #                 if len(tricyclist_index_list) == 0:
-        #                     ret_dicts.append(ret_zeros_use_dict)
-        #                 else:
-        #                     task_f = task(x[tricyclist_index_list])                   
-        #                     for key in ret_zeros_use_dict:
-        #                         ret_zeros_use_dict[key][tricyclist_index_list] = task_f[key] 
-        #                     ret_dicts.append(ret_zeros_use_dict)  
-        #             if i == 7:
-        #                 if len(motorcyclist_index_list) == 0:
-        #                     ret_dicts.append(ret_zeros_use_dict)
-        #                 else:
-        #                     task_f = task(x[motorcyclist_index_list])                   
-        #                     for key in ret_zeros_use_dict:
-        #                         ret_zeros_use_dict[key][motorcyclist_index_list] = task_f[key] 
-        #                     ret_dicts.append(ret_zeros_use_dict)  
-        #             if i == 8:
-        #                 if len(barrowlist_index_list) == 0:
-        #                     ret_dicts.append(ret_zeros_use_dict)
-        #                 else:
-        #                     task_f = task(x[barrowlist_index_list])                   
-        #                     for key in ret_zeros_use_dict:
-        #                         ret_zeros_use_dict[key][barrowlist_index_list] = task_f[key] 
-        #                     ret_dicts.append(ret_zeros_use_dict)  
             
         return ret_dicts
 

@@ -459,66 +459,37 @@ class LSSFPN(nn.Module):
         source_features = img_feats[:, 0, ...]
 
         # The prompt feature will be extract token features
-        prompt_num_per_batch = 0 
-        prompt_flag = True 
-        for box_2d in mats_dict['prompt_2d']:
-            if box_2d.shape[0] == 0:
-                prompt_flag = False
-                break
-            prompt_num_per_batch += box_2d.shape[0]
-        if prompt_flag == True:
-            source_features = source_features.reshape(batch_size * num_cams,
-                                                    source_features.shape[2],
-                                                    source_features.shape[3],
-                                                    source_features.shape[4])   
-            sensor2ego_mats_list = list()
-            intrin_mats_list = list()
-            ida_mats_list = list()
-            reference_heights_list = list()
-            sensor2sensor_mats_list = list()
-            sensor2virtual_mats_list = list()
-            bda_mat_list = list()   
-            for i in range(batch_size):
-                prompt_num_per_image = mats_dict['prompt_2d'][i].shape[0]
-                sensor2ego_mats_list.append(torch.repeat_interleave(mats_dict['sensor2ego_mats'][i], prompt_num_per_image, dim=0))
-                intrin_mats_list.append(torch.repeat_interleave(mats_dict['intrin_mats'][i], prompt_num_per_image, dim=0))
-                ida_mats_list.append(torch.repeat_interleave(mats_dict['ida_mats'][i], prompt_num_per_image, dim=0))
-                reference_heights_list.append(torch.repeat_interleave(mats_dict['reference_heights'][i], prompt_num_per_image, dim=0))
-                sensor2sensor_mats_list.append(torch.repeat_interleave(mats_dict['sensor2sensor_mats'][i], prompt_num_per_image, dim=0))
-                sensor2virtual_mats_list.append(torch.repeat_interleave(mats_dict['sensor2virtual_mats'][i], prompt_num_per_image, dim=0))
-                bda_mat_list.append(torch.repeat_interleave(mats_dict['bda_mat'][i].unsqueeze(0), prompt_num_per_image, dim=0))
-            mats_dict['sensor2ego_mats'] = torch.cat(sensor2ego_mats_list, dim=0).unsqueeze(1)
-            mats_dict['intrin_mats'] = torch.cat(intrin_mats_list, dim=0).unsqueeze(1)
-            mats_dict['ida_mats'] = torch.cat(ida_mats_list, dim=0).unsqueeze(1)
-            mats_dict['reference_heights'] = torch.cat(reference_heights_list, dim=0).unsqueeze(1)
-            mats_dict['sensor2sensor_mats'] = torch.cat(sensor2sensor_mats_list, dim=0).unsqueeze(1)
-            mats_dict['sensor2virtual_mats'] = torch.cat(sensor2virtual_mats_list, dim=0).unsqueeze(1)
-            mats_dict['bda_mat'] = torch.cat(bda_mat_list, dim=0)
-            batch_size = prompt_num_per_batch 
-            prompt_boxes = mats_dict['prompt_2d']
-            prompt_classes = mats_dict['prompt_class']
-            prompt_points = None
-            prompt_mask = None
-            sparse_embeddings = self.prompt_encoder(
-                points=prompt_points,
-                boxes=prompt_boxes,
-                masks=prompt_mask,
-            )  
-            
-            # Add class feature
-            # for batch in range(len(sparse_embeddings)):
-            #     sparse_embeddings[batch] = torch.cat((sparse_embeddings[batch], prompt_classes[batch]), dim=1)
+        source_features = source_features.reshape(batch_size * num_cams,
+                                                source_features.shape[2],
+                                                source_features.shape[3],
+                                                source_features.shape[4])   
+    
+        prompt_boxes = mats_dict['prompt_2d']
+        prompt_classes = mats_dict['prompt_class']
+        prompt_points = None
+        prompt_mask = None
 
-            source_features = self.mask_decoder(
-                image_embeddings=source_features,
-                image_pe=self.prompt_encoder.get_dense_pe(),
-                sparse_prompt_embeddings=sparse_embeddings
-            )         
-            source_features = source_features.reshape(batch_size,
-                                                  num_cams,
-                                                  source_features.shape[1],
-                                                  source_features.shape[2],
-                                                  source_features.shape[3])  
+        sparse_embeddings = self.prompt_encoder(
+            points=prompt_points,
+            boxes=prompt_boxes,
+            masks=prompt_mask,
+        )  
+
+        # Add class feature
+        # for batch in range(len(sparse_embeddings)):
+        #     sparse_embeddings[batch] = torch.cat((sparse_embeddings[batch], prompt_classes[batch]), dim=1)
+
+        source_features = self.mask_decoder(
+            image_embeddings=source_features,
+            image_pe=self.prompt_encoder.get_dense_pe(),
+            sparse_prompt_embeddings=sparse_embeddings
+        )    
+
+        source_features = source_features.reshape(batch_size,
+                                                num_cams,
+                                                source_features.shape[1],
+                                                source_features.shape[2],
+                                                source_features.shape[3])  
 
         height_feature = self._forward_height_net(
             source_features.reshape(batch_size * num_cams,
@@ -528,26 +499,19 @@ class LSSFPN(nn.Module):
             mats_dict,
         )
         height = height_feature[:, :self.height_channels].softmax(1)
-        
+
         # mask image features which are not in 2D boxes 
         # image_mask = mats_dict['image_mask'] 
-        # image_mask = torch.cat(image_mask).float()
-        # if image_mask.shape[0] > 40:
-        #     image_mask1 = torch.max_pool2d(image_mask[0:20], (16, 16))
-        #     image_mask2 = torch.max_pool2d(image_mask[20:40], (16, 16))
-        #     image_mask3 = torch.max_pool2d(image_mask[40:], (16, 16))
-        #     image_mask = torch.cat([image_mask1, image_mask2, image_mask3])
-        # elif image_mask.shape[0] > 20:
-        #     image_mask1 = torch.max_pool2d(image_mask[0:20], (16, 16))
-        #     image_mask2 = torch.max_pool2d(image_mask[20:], (16, 16))
-        #     image_mask = torch.cat([image_mask1, image_mask2])
-        # else:
-        #     image_mask = torch.max_pool2d(image_mask, (16, 16))
-        # # image_mask = torch.max_pool2d(image_mask, (16, 16))
+        # image_mask = torch.cat(image_mask)
+        # image_mask = torch.max_pool2d(image_mask.float(), (16, 16))
         # temp = height_feature[:, self.height_channels:(self.height_channels + self.output_channels)] * image_mask 
         # img_feat_with_height = height.unsqueeze(1) * temp.unsqueeze(2)
-        # img_feat_with_height = self._forward_voxel_net(img_feat_with_height)
+        
+        img_feat_with_height = height.unsqueeze(
+            1) * height_feature[:, self.height_channels:(
+                self.height_channels + self.output_channels)].unsqueeze(2)
 
+        img_feat_with_height = self._forward_voxel_net(img_feat_with_height)
 
         img_feat_with_height = height.unsqueeze(
             1) * height_feature[:, self.height_channels:(

@@ -1,6 +1,8 @@
 '''
 Modified from https://github.com/nutonomy/nuscenes-devkit/blob/57889ff20678577025326cfc24e57424a829be0a/python-sdk/nuscenes/eval/detection/evaluate.py
 '''
+import sys
+sys.path.append('/home/zjlab/myc/code/BEVPrompt')
 import os.path as osp
 import tempfile
 
@@ -20,6 +22,16 @@ class RoadSideEvaluator():
         'Vehicle': 'vehicle.parked',
         'Cyclist': 'cycle.with_rider',
         'Pedestrian': 'pedestrian.moving',
+        "car": "vehicle.car",
+        "van": "vehicle.van",
+        "truck": "vehicle.truck",
+        "bus": "vehicle.bus.rigid",
+        "cyclist": "vehicle.cyclist",
+        "tricyclist": "vehicle.tricyclist",
+        "motorcyclist": "vehicle.motorcyclist",
+        "barrowlist": "vehicle.barrowlist",
+        "pedestrian": "human.pedestrian.adult",
+        "traffic_cone": "movable_object.trafficcone",        
     }
 
     def __init__(
@@ -90,7 +102,7 @@ class RoadSideEvaluator():
                                                     jsonfile_prefix)
         print(result_files, tmp_dir)
         results_path = "outputs" 
-        if 'dair' in self.data_root:
+        if 'dair' in self.data_root or 'V2X-Seq-SPD' in self.data_root:
             pred_label_path = result2kitti(result_files["img_bbox"], results_path, self.data_root, self.gt_label_path, demo=False)
         else:
             pred_label_path = result2kitti_rope3d(result_files["img_bbox"], results_path, self.data_root, self.gt_label_path, demo=False)
@@ -133,6 +145,7 @@ class RoadSideEvaluator():
                     elif name in ['bicycle', 'motorcycle']:
                         attr = 'cycle.with_rider'
                     else:
+
                         attr = self.DefaultAttribute[name]
                 else:
                     if name in ['pedestrian']:
@@ -226,7 +239,7 @@ class RoadSideEvaluator():
         return result_files, tmp_dir
 
 if __name__ == "__main__":
-    pred_label_path = "outputs/data/"  
+    pred_label_path = "outputs/data/" 
     gt_label_path = "data/dair-v2x-i-kitti/training/label_2"
 
     kitti_evaluation(pred_label_path, gt_label_path, current_classes=["Vehicle", "Cyclist", "Pedestrian"], metric_path="outputs/metrics")

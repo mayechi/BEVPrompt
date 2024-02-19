@@ -1,6 +1,7 @@
 import os
 import math
 import cv2
+import numba
 
 import random
 import mmcv
@@ -203,6 +204,21 @@ def depth_transform(cam_depth, resize, resize_dims, crop, flip, rotate):
               depth_coords[valid_mask, 0]] = cam_depth[valid_mask, 2]
 
     return torch.Tensor(depth_map)
+
+@numba.jit(nopython=True)
+def gen_mask(gt_2d):
+    # mask image features which are not in 2D boxes 
+    image_mask = np.zeros((gt_2d.shape[0], 80, 864, 1536), dtype=np.int8)
+    for i in range(gt_2d.shape[0]): 
+        x1, y1 = int(gt_2d[i][0]), int(gt_2d[i][1])
+        x2, y2 = int(gt_2d[i][2]), int(gt_2d[i][3])
+        center = ((x1+x2)/2, (y1+y2)/2)
+        w, h = x2-x1, y2-y1
+        w_new, h_new = w*1.2, h*1.2
+        x1_new, y1_new = int(center[0]-w_new/2), int(center[1]-h_new/2)
+        x2_new, y2_new = int(center[0]+w_new/2), int(center[1]+h_new/2)
+        image_mask[i, :, y1_new:y2_new, x1_new:x2_new] = 1      
+    return image_mask
 
 
 class NuscMVDetDataset(Dataset):
@@ -444,7 +460,7 @@ class NuscMVDetDataset(Dataset):
                     cam_info[cam]['calibrated_sensor']['camera_intrinsic'])
                 sweepego2sweepsensor = sweepsensor2sweepego.inverse()
                 
-                if self.is_train and random.random() < 0.5:
+                if self.is_train and random.random() < 0.5 and self.aug_flag == True:
                     intrin_mat, sweepego2sweepsensor, ratio, roll, transform_pitch = self.sample_intrin_extrin_augmentation(intrin_mat, sweepego2sweepsensor)
                     img = img_intrin_extrin_transform(img, ratio, roll, transform_pitch, intrin_mat.numpy())
                 
@@ -607,7 +623,10 @@ class NuscMVDetDataset(Dataset):
                     map_name_from_detection_to_prompt_class[map_name_from_general_to_detection[
                     ann_info['category_name']]])
         gt_classes = torch.tensor(gt_classes)
-        gt_classes = gt_classes.expand(512, gt_classes.shape[0]).permute(1, 0).unsqueeze(1)           
+        # gt_classes = gt_classes.expand(512, gt_classes.shape[0]).permute(1, 0).unsqueeze(1) 
+        # gt_classes = gt_classes.expand(1, 1, 256, 256)
+        gt_classes = gt_classes.expand(256, 256, gt_classes.shape[0]).permute(2, 0, 1).unsqueeze(1)     
+
         return torch.Tensor(gt_boxes), torch.tensor(gt_labels), gt_classes, torch.tensor(gt_corners)
 
     def get_2d_from_2D_detector(self, frame_name):
@@ -641,6 +660,37 @@ class NuscMVDetDataset(Dataset):
         gt_boxes_2d = torch.Tensor(gt_boxes_2d)
         gt_scores = torch.Tensor(gt_scores)
         return gt_labels, gt_classes, gt_boxes_2d, gt_scores
+
+    def get_2d_from_3D_detector(self, frame_name):
+        self.result_3d_dir = './outputs/coarse_cls_head_prompt_19th/'
+        score_2d_thresh_dict = {
+            1: 0.0,
+            2: 0.0,
+            3: 0.0
+        }
+        gt_boxes_2d_list, gt_classes = list(), list()
+        file_flag = os.path.exists(self.result_3d_dir+frame_name+'.txt')
+        if file_flag == False:
+            print("Not 2d file: ", self.result_2d_dir+frame_name+'.txt')
+            return torch.zeros([0, ], dtype=torch.float32), torch.zeros([0, ], dtype=torch.float32), torch.zeros([0, 4], dtype=torch.float32), torch.zeros([0, ], dtype=torch.float32)
+        with open(self.result_3d_dir+frame_name+'.txt', 'r') as f:
+            objs_list = f.readlines()
+            for aid, objs in enumerate(objs_list):
+                temp_list = objs.split(' ')
+                cls_name, _, _, _, x1, y1, x2, y2 = temp_list[:8]
+                cls_id = map_name_from_detection_to_prompt_class[cls_name]
+                score = temp_list[-1]
+                score = float(score[:-1])
+                if score < score_2d_thresh_dict[cls_id]:
+                    continue
+                gt_classes.append(cls_id)
+                gt_boxes_2d_list.append([float(x1)*0.8, float(y1)*0.8, float(x2)*0.8, float(y2)*0.8])
+        gt_classes = torch.LongTensor(gt_classes)
+        # gt_classes = gt_classes.expand(512, gt_classes.shape[0]).permute(1, 0).unsqueeze(1) 
+        # gt_classes = gt_classes.expand(1, 1, 256, 256)
+        gt_classes = gt_classes.expand(256, 256, gt_classes.shape[0]).permute(2, 0, 1).unsqueeze(1)  
+        gt_boxes_2d = torch.Tensor(gt_boxes_2d_list)
+        return gt_boxes_2d_list, gt_boxes_2d, gt_classes       
 
     def lidar2img(self, points_lidar, sweep_sensor2ego_mats, sweep_intrins, sweep_ida_mats):
         points_lidar_homogeneous = \
@@ -714,86 +764,119 @@ class NuscMVDetDataset(Dataset):
                                 for cam in cams]) == len(cams):
                             cam_infos.append(info['sweeps'][i])
                             break
-        image_data_list = self.get_image(cam_infos, cams)
-        ret_list = list()
-        (
-            sweep_imgs_ori,
-            sweep_imgs,
-            sweep_sensor2ego_mats,
-            sweep_intrins,
-            sweep_ida_mats,
-            sweep_sensor2sensor_mats,
-            sweep_sensor2virtual_mats,
-            sweep_timestamps,
-            sweep_reference_heights,
-            img_metas,
-        ) = image_data_list[:10]
-        img_metas['token'] = self.infos[idx]['sample_token']
-        if self.is_train:
-            gt_boxes, gt_labels, gt_classes, gt_corners = self.get_gt(self.infos[idx], cams)
-            
-            # Transform 3D box to 2D Box
-            gt_2d_list = list()
-            gt_flag = np.zeros([gt_boxes.shape[0]], dtype=np.bool)
-            gt_corners = gt_corners.numpy().astype('float32').reshape(-1, 3)
-            sweep_imgs_ori_array = sweep_imgs_ori.squeeze().numpy().transpose(1, 2, 0).copy()
-            sweep_sensor2ego_mats_array = sweep_sensor2ego_mats.squeeze().numpy()
-            sweep_intrins_array = sweep_intrins.squeeze().numpy()
-            sweep_ida_mats_array = sweep_ida_mats.squeeze().numpy()
-            corners_img_gt, valid_z_gt = self.lidar2img(gt_corners, sweep_sensor2ego_mats_array, 
-                                                        sweep_intrins_array[:3, :3], sweep_ida_mats_array[:2, :2])
-            valid_shape_gt = self.check_point_in_img(corners_img_gt, sweep_imgs_ori_array.shape[0], sweep_imgs_ori_array.shape[1])     
-            valid_all_gt = np.logical_and(valid_z_gt, valid_shape_gt)      
-            valid_z_gt = valid_z_gt.reshape(-1, 8)
-            valid_shape_gt = valid_shape_gt.reshape(-1, 8)
-            valid_all_gt = valid_all_gt.reshape(-1, 8)
-            corners_img_gt = corners_img_gt.reshape(-1, 8, 2).astype(np.int)
-            for aid in range(valid_all_gt.shape[0]):              
-                if valid_z_gt[aid].sum() >= 1:
-                    min_col = max(min(corners_img_gt[aid, valid_z_gt[aid], 0].min(), sweep_imgs_ori_array.shape[1]), 0)
-                    max_col = max(min(corners_img_gt[aid, valid_z_gt[aid], 0].max(), sweep_imgs_ori_array.shape[1]), 0)
-                    min_row = max(min(corners_img_gt[aid, valid_z_gt[aid], 1].min(), sweep_imgs_ori_array.shape[0]), 0)
-                    max_row = max(min(corners_img_gt[aid, valid_z_gt[aid], 1].max(), sweep_imgs_ori_array.shape[0]), 0)                  
-                    if (max_col - min_col) == 0 or (max_row - min_row) == 0:
-                        continue     
-                    gt_flag[aid] = True 
-                    gt_2d_list.append([min_col, min_row, max_col, max_row])
+        self.aug_flag = True
+        while True:
+            image_data_list = self.get_image(cam_infos, cams)
+            ret_list = list()
+            (
+                sweep_imgs_ori,
+                sweep_imgs,
+                sweep_sensor2ego_mats,
+                sweep_intrins,
+                sweep_ida_mats,
+                sweep_sensor2sensor_mats,
+                sweep_sensor2virtual_mats,
+                sweep_timestamps,
+                sweep_reference_heights,
+                img_metas,
+            ) = image_data_list[:10]
+            img_metas['token'] = self.infos[idx]['sample_token']
+            # if self.is_train:
+            if 1:
+                gt_boxes, gt_labels, gt_classes, gt_corners = self.get_gt(self.infos[idx], cams)
+                
+                # Transform 3D box to 2D Box
+                gt_2d_list = list()
+                gt_flag = np.zeros([gt_boxes.shape[0]], dtype=np.bool)
+                gt_corners = gt_corners.numpy().astype('float32').reshape(-1, 3)
+                sweep_imgs_ori_array = sweep_imgs_ori.squeeze().numpy().transpose(1, 2, 0).copy()
+                sweep_sensor2ego_mats_array = sweep_sensor2ego_mats.squeeze().numpy()
+                sweep_intrins_array = sweep_intrins.squeeze().numpy()
+                sweep_ida_mats_array = sweep_ida_mats.squeeze().numpy()
+                corners_img_gt, valid_z_gt = self.lidar2img(gt_corners, sweep_sensor2ego_mats_array, 
+                                                            sweep_intrins_array[:3, :3], sweep_ida_mats_array[:2, :2])
+                valid_shape_gt = self.check_point_in_img(corners_img_gt, sweep_imgs_ori_array.shape[0], sweep_imgs_ori_array.shape[1])     
+                valid_all_gt = np.logical_and(valid_z_gt, valid_shape_gt)      
+                valid_z_gt = valid_z_gt.reshape(-1, 8)
+                valid_shape_gt = valid_shape_gt.reshape(-1, 8)
+                valid_all_gt = valid_all_gt.reshape(-1, 8)
+                corners_img_gt = corners_img_gt.reshape(-1, 8, 2).astype(np.int)
+                for aid in range(valid_all_gt.shape[0]):              
+                    if valid_z_gt[aid].sum() >= 1:
+                        min_col = max(min(corners_img_gt[aid, valid_z_gt[aid], 0].min(), sweep_imgs_ori_array.shape[1]), 0)
+                        max_col = max(min(corners_img_gt[aid, valid_z_gt[aid], 0].max(), sweep_imgs_ori_array.shape[1]), 0)
+                        min_row = max(min(corners_img_gt[aid, valid_z_gt[aid], 1].min(), sweep_imgs_ori_array.shape[0]), 0)
+                        max_row = max(min(corners_img_gt[aid, valid_z_gt[aid], 1].max(), sweep_imgs_ori_array.shape[0]), 0)                  
+                        if (max_col - min_col) == 0 or (max_row - min_row) == 0:
+                            continue     
+                        gt_flag[aid] = True 
+                        gt_2d_list.append([min_col, min_row, max_col, max_row])
 
-            gt_boxes = gt_boxes[gt_flag]
-            gt_labels = gt_labels[gt_flag]
-            gt_classes = gt_classes[gt_flag]
-            gt_boxes_2d = torch.Tensor(gt_2d_list)
-            if gt_boxes.shape[0] == 0:
-                gt_boxes = sweep_imgs.new_zeros(0, 7)
-                gt_labels = sweep_imgs.new_zeros(0, )
-                gt_classes = sweep_imgs.new_zeros(0, )
-                gt_boxes_2d = sweep_imgs.new_zeros(0, 4)
-            else:                      
-                gt_boxes = gt_boxes
-                gt_labels = gt_labels
-                gt_classes = gt_classes
-                gt_boxes_2d = gt_boxes_2d
-        # Temporary solution for test.
-        else:
-            # Get from 2D Detections
-            # img_name = img_metas['token'].split('/')[1]
-            img_name = img_metas['token']
-            frame_name = img_name.split('/')[1].split('.jpg')[0]
-            sweep_imgs_ori_array = sweep_imgs_ori.squeeze().numpy().transpose(1, 2, 0).copy()
-            dt_labels, dt_classes, dt_boxes_2d, dt_scores = self.get_2d_from_2D_detector(frame_name)
-            dt_boxes = sweep_imgs.new_zeros(0, 7)
-            if dt_labels.shape[0] == 0:
-                gt_boxes = sweep_imgs.new_zeros(0, 7)
-                gt_labels = sweep_imgs.new_zeros(0, )
-                gt_classes = sweep_imgs.new_zeros(0, )
-                gt_boxes_2d = sweep_imgs.new_zeros(0, 4)
-                gt_scores = sweep_imgs.new_zeros(0, )
-            else:                   
-                gt_boxes = dt_boxes
-                gt_labels = dt_labels
-                gt_classes = dt_classes
-                gt_boxes_2d = dt_boxes_2d
-                gt_scores = dt_scores
+                gt_boxes = gt_boxes[gt_flag]
+                gt_labels = gt_labels[gt_flag]
+                gt_classes = gt_classes[gt_flag]
+                gt_boxes_2d = torch.Tensor(gt_2d_list)
+
+                # mask image features which are not in 2D boxes 
+                # image_mask = gen_mask(np.array(gt_2d_list))
+                # image_mask = torch.from_numpy(image_mask)
+                # image_mask = torch.zeros((gt_boxes_2d.shape[0], 80, 864, 1536)).int()
+                # for i in range(gt_boxes_2d.shape[0]): 
+                #     x1, y1 = int(gt_2d_list[i][0]), int(gt_2d_list[i][1])
+                #     x2, y2 = int(gt_2d_list[i][2]), int(gt_2d_list[i][3])
+                #     center = ((x1+x2)/2, (y1+y2)/2)
+                #     w, h = x2-x1, y2-y1
+                #     w_new, h_new = w*1.2, h*1.2
+                #     x1_new, y1_new = int(center[0]-w_new/2), int(center[1]-h_new/2)
+                #     x2_new, y2_new = int(center[0]+w_new/2), int(center[1]+h_new/2)
+                #     image_mask[i, :, y1_new:y2_new, x1_new:x2_new] = 1
+                #     # image_mask[i, :, y1:y2, x1:x2] = 1
+
+
+                # Use one more prompt by 3D detections
+                # img_name = img_metas['token']
+                # frame_name = img_name.split('/')[1].split('.jpg')[0]                
+                # gt_2d_list, gt_boxes_2d, gt_classes = self.get_2d_from_3D_detector(frame_name)
+
+                if gt_boxes.shape[0] == 0:
+                    gt_boxes = sweep_imgs.new_zeros(0, 7)
+                    gt_labels = sweep_imgs.new_zeros(0, )
+                    gt_classes = sweep_imgs.new_zeros(0, )
+                    gt_boxes_2d = sweep_imgs.new_zeros(0, 4)
+                    self.aug_flag = False
+                else:  
+                    # mask image features which are not in 2D boxes 
+                    # image_mask = gen_mask(np.array(gt_2d_list))
+                    # image_mask = torch.from_numpy(image_mask)   
+                    
+                    image_mask = torch.zeros((gt_boxes.shape[0]))
+
+                    gt_boxes = gt_boxes
+                    gt_labels = gt_labels
+                    gt_classes = gt_classes
+                    gt_boxes_2d = gt_boxes_2d
+                    break
+            # Temporary solution for test.
+            else:
+                # Get from 2D Detections
+                # img_name = img_metas['token'].split('/')[1]
+                img_name = img_metas['token']
+                frame_name = img_name.split('/')[1].split('.jpg')[0]
+                sweep_imgs_ori_array = sweep_imgs_ori.squeeze().numpy().transpose(1, 2, 0).copy()
+                dt_labels, dt_classes, dt_boxes_2d, dt_scores = self.get_2d_from_2D_detector(frame_name)
+                dt_boxes = sweep_imgs.new_zeros(0, 7)
+                if dt_labels.shape[0] == 0:
+                    gt_boxes = sweep_imgs.new_zeros(0, 7)
+                    gt_labels = sweep_imgs.new_zeros(0, )
+                    gt_classes = sweep_imgs.new_zeros(0, )
+                    gt_boxes_2d = sweep_imgs.new_zeros(0, 4)
+                    gt_scores = sweep_imgs.new_zeros(0, )
+                else:                   
+                    gt_boxes = dt_boxes
+                    gt_labels = dt_labels
+                    gt_classes = dt_classes
+                    gt_boxes_2d = dt_boxes_2d
+                    gt_scores = dt_scores
         
         rotate_bda, scale_bda, flip_dx, flip_dy = self.sample_bda_augmentation(
         )
@@ -817,7 +900,8 @@ class NuscMVDetDataset(Dataset):
             gt_boxes,
             gt_labels,
             gt_classes,
-            gt_boxes_2d,            
+            gt_boxes_2d, 
+            image_mask,           
         ]
         if self.return_depth:
             ret_list.append(image_data_list[9])
@@ -847,7 +931,9 @@ def collate_fn(data, is_return_depth=False):
     gt_boxes_batch = list()
     gt_labels_batch = list()
     gt_classes_batch = list()
-    gt_boxes_2d_batch = list()    
+    gt_boxes_2d_batch = list() 
+    image_mask_batch = list() 
+
     img_metas_batch = list()
     depth_labels_batch = list()
     for iter_data in data:
@@ -865,8 +951,9 @@ def collate_fn(data, is_return_depth=False):
             gt_boxes,
             gt_labels,
             gt_classes,
-            gt_boxes_2d,            
-        ) = iter_data[:14]
+            gt_boxes_2d,  
+            image_mask,          
+        ) = iter_data[:15]
         if is_return_depth:
             gt_depth = iter_data[14]
             depth_labels_batch.append(gt_depth)
@@ -883,7 +970,8 @@ def collate_fn(data, is_return_depth=False):
         gt_boxes_batch.append(gt_boxes)
         gt_labels_batch.append(gt_labels)
         gt_classes_batch.append(gt_classes)
-        gt_boxes_2d_batch.append(gt_boxes_2d)        
+        gt_boxes_2d_batch.append(gt_boxes_2d) 
+        image_mask_batch.append(image_mask)        
     mats_dict = dict()
     mats_dict['sensor2ego_mats'] = torch.stack(sensor2ego_mats_batch)
     mats_dict['intrin_mats'] = torch.stack(intrin_mats_batch)
@@ -893,6 +981,7 @@ def collate_fn(data, is_return_depth=False):
     mats_dict['sensor2virtual_mats'] = torch.stack(sensor2virtual_mats_batch)
     mats_dict['bda_mat'] = torch.stack(bda_mat_batch)
     mats_dict['prompt_2d'] = gt_boxes_2d_batch
+    mats_dict['image_mask'] = image_mask_batch
     mats_dict['prompt_class'] = gt_classes_batch    
     ret_list = [
         torch.stack(imgs_batch),

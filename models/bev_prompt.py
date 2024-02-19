@@ -60,7 +60,8 @@ class BEVPrompt(nn.Module):
             return preds, height_pred
         else:
             x = self.backbone(x, mats_dict, timestamps)
-            preds = self.head(x)
+            # preds = self.head(x)
+            preds = self.head(x, mats_dict)
             return preds
 
     def get_targets(self, gt_boxes, gt_labels):

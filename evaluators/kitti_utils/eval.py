@@ -675,6 +675,13 @@ def kitti_eval(gt_annos,
                             [0.5, 0.25, 0.25],
                             [0.5, 0.25, 0.25]])
     min_overlaps = np.stack([overlap_0_7, overlap_0_5], axis=0)  # [2, 3, 5]
+
+    # overlap_list = list()
+    # for step in np.arange(0.5, 1.0, 0.05):
+    #     overlap = np.ones((3, 3)) * step
+    #     overlap_list.append(overlap)
+    # min_overlaps = np.stack(overlap_list, axis=0) 
+
     class_to_name = {
         0: 'Vehicle',
         1: 'Cyclist',
@@ -754,17 +761,23 @@ def kitti_eval(gt_annos,
         # prepare results for print
         result += ('\nOverall AP@{}, {}, {}:\n'.format(*difficulty))
         if mAPbbox is not None:
-            mAPbbox = mAPbbox.mean(axis=0)
-            result += 'bbox AP:{:.4f}, {:.4f}, {:.4f}\n'.format(*mAPbbox[:, 0])
+            # mAPbbox = mAPbbox.mean(axis=0)
+            mAPbbox = mAPbbox.mean(axis=2)
+            print('bbox:', mAPbbox)
+            # result += 'bbox AP:{:.4f}, {:.4f}, {:.4f}\n'.format(*mAPbbox[:, 0])
         if mAPbev is not None:
-            mAPbev = mAPbev.mean(axis=0)
-            result += 'bev  AP:{:.4f}, {:.4f}, {:.4f}\n'.format(*mAPbev[:, 0])
+            # mAPbev = mAPbev.mean(axis=0)
+            mAPbev = mAPbev.mean(axis=2)
+            print('bev:', mAPbev)
+            # result += 'bev  AP:{:.4f}, {:.4f}, {:.4f}\n'.format(*mAPbev[:, 0])
         if mAP3d is not None:
-            mAP3d = mAP3d.mean(axis=0)
-            result += '3d   AP:{:.4f}, {:.4f}, {:.4f}\n'.format(*mAP3d[:, 0])
+            # mAP3d = mAP3d.mean(axis=0)
+            mAP3d = mAP3d.mean(axis=2)
+            print('3d:', mAP3d)
+            # result += '3d   AP:{:.4f}, {:.4f}, {:.4f}\n'.format(*mAP3d[:, 0])
         if compute_aos:
             mAPaos = mAPaos.mean(axis=0)
-            result += 'aos  AP:{:.2f}, {:.2f}, {:.2f}\n'.format(*mAPaos[:, 0])
+            # result += 'aos  AP:{:.2f}, {:.2f}, {:.2f}\n'.format(*mAPaos[:, 0])
 
         # prepare results for logger
         for idx in range(3):

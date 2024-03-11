@@ -1,8 +1,6 @@
 '''
 Modified from https://github.com/nutonomy/nuscenes-devkit/blob/57889ff20678577025326cfc24e57424a829be0a/python-sdk/nuscenes/eval/detection/evaluate.py
 '''
-import sys
-sys.path.append('/home/zjlab/myc/code/BEVPrompt')
 import os.path as osp
 import tempfile
 

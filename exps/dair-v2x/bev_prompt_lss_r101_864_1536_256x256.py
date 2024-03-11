@@ -1,7 +1,5 @@
 # Copyright (c) Megvii Inc. All rights reserved.
 from argparse import ArgumentParser, Namespace
-import sys
-sys.path.append('/home/zjlab/myc/code/BEVPrompt')
 
 import os
 import mmcv

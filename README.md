@@ -1,7 +1,7 @@
 # BEVPrompt
 ![Framework and benchmarking-results of BEVPormpt](./assets/intro.png)
 
-**BEVPromot** is a new vision-based roadside monocular 3D object detector. BEVPrompt surpasses BEVDepth and BEVHeight by a obvious margin of **11.4%**, **8.8%**, **14.9** and **9.1%**, **4.0%**, **8.8%** in vehicle, cyclist, pedestrian classes respectively on **DAIR-V2X-I**.
+**BEVPromot** is a new vision-based roadside monocular 3D object detector. BEVPrompt surpasses BEVDepth and BEVHeight by a obvious margin of **8.8%**, **13.3** and **18.0%**, **8.5%**, **11.9%** in vehicle, cyclist, pedestrian classes respectively on **DAIR-V2X-I**.
 
 
 

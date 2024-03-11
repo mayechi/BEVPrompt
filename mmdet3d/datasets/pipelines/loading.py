@@ -410,8 +410,6 @@ class LoadPointsFromFile(object):
         if self.file_client is None:
             self.file_client = mmcv.FileClient(**self.file_client_args)
         try:
-            if "zjlab" in pts_filename:
-                pts_filename = pts_filename.split('/home/zjlab/mayechi/code/NP/mmdet3d-lt3d/data/nuscenes/')[1]
             pts_bytes = self.file_client.get(pts_filename)
             points = np.frombuffer(pts_bytes, dtype=np.float32)
         except ConnectionError:
